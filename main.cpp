@@ -1,30 +1,40 @@
 #include<iostream>
 #include<fstream>
 #include<complex>
-#include<vector>
-#include<time.h>
 #include"readwav.h"
 #include"model.h"
-#include"reshape.h"
+#include<vector>
+//#include <constant.h>
+
 #include "constant.h"
+
+#include <jni.h>
+
 
 using namespace std;
 
-const int filterNum = 26;//Èô¸ÄĞèÒª¸Äf[];
+
+const int filterNum = 26;//è‹¥æ”¹éœ€è¦æ”¹f[];
 int sampleRate = 16000;
 int maxlen = 100;
 int dim = 39;
-#define Win_Time 0.025//°Ñ25msÀïµÄËùÓĞµã×÷ÎªÒ»¸öµã·ÖÎö
-#define Hop_Time 0.01//Ã¿¸ô10ms·ÖÒ»´ÎÖ¡
+#define Win_Time 0.025//æŠŠ25msé‡Œçš„æ‰€æœ‰ç‚¹ä½œä¸ºä¸€ä¸ªç‚¹åˆ†æ
+#define Hop_Time 0.010//æ¯éš”10msåˆ†ä¸€æ¬¡å¸§
+//#define frameSize 512//è¡¥é›¶åçš„é•¿åº¦
 #define Pi 3.1415927
-int hopStep = Hop_Time * sampleRate;//¸ôhopStep¸öÑù±¾µã·ÖÒ»´ÎÖ¡
+int hopStep = Hop_Time * sampleRate;//éš”hopStepä¸ªæ ·æœ¬ç‚¹åˆ†ä¸€æ¬¡å¸§
+
+extern void reshape(double **mfcc39, int maxlen, int dim, int frameNum, double **x_test);
+
+extern void
+trimming(vector<int> &newlist, vector<int> &copylist, int *dict_out, int frameNum, int hopStep);
 
 
-//1.Ô¤¼ÓÖØ
+//1.é¢„åŠ é‡
 void pre_emphasizing(double *sample, int len, double factor, double *Sample) {
     Sample[0] = sample[0];
     for (int i = 1; i < len; i++) {
-        //Ô¤¼ÓÖØ¹ı³Ì
+        //é¢„åŠ é‡è¿‡ç¨‹
         Sample[i] = sample[i] - factor * sample[i - 1];
     }
 }
@@ -35,10 +45,10 @@ void Hamming(double *hamWin, int hamWinSize) {
     }
 }
 
-//¼ÆËãÃ¿Ò»Ö¡µÄ¹¦ÂÊÆ×
+//è®¡ç®—æ¯ä¸€å¸§çš„åŠŸç‡è°±
 void mfccFFT(double *frameSample, double *FFTSample, int frameSize, int pos) {
-    //¶Ô·ÖÖ¡¼Ó´°ºóµÄ¸÷Ö¡ĞÅºÅ½øĞĞFFT±ä»»µÃµ½¸÷Ö¡µÄÆµÆ×
-    //²¢¶ÔÓïÒôĞÅºÅµÄÆµÆ×È¡Ä£Æ½·½µÃµ½ÓïÒôĞÅºÅµÄ¹¦ÂÊÆ×
+    //å¯¹åˆ†å¸§åŠ çª—åçš„å„å¸§ä¿¡å·è¿›è¡ŒFFTå˜æ¢å¾—åˆ°å„å¸§çš„é¢‘è°±
+    //å¹¶å¯¹è¯­éŸ³ä¿¡å·çš„é¢‘è°±å–æ¨¡å¹³æ–¹å¾—åˆ°è¯­éŸ³ä¿¡å·çš„åŠŸç‡è°±
     double dataR[frameSize];
     double dataI[frameSize];
     for (int i = 0; i < frameSize; i++) {
@@ -109,21 +119,21 @@ void mfccFFT(double *frameSample, double *FFTSample, int frameSize, int pos) {
 
 }
 
-//²ÎÊıËµÃ÷£ºframeSampleÎª´¦ÀíÖ®ºóµÄÊı×é£¬SampleÎª¶ÔÑù±¾½øĞĞÔ¤¼ÓÖØÖ®ºóµÄÊı×é
-//          lenÎªSampleµÄ³¤¶È£¬frameSizeÎªÃ¿Ö¡µÄÑù±¾µã¸öÊı£¬frameSampleLenÎª´¦ÀíÖ®ºóµÄ³¤¶È
+//å‚æ•°è¯´æ˜ï¼šframeSampleä¸ºå¤„ç†ä¹‹åçš„æ•°ç»„ï¼ŒSampleä¸ºå¯¹æ ·æœ¬è¿›è¡Œé¢„åŠ é‡ä¹‹åçš„æ•°ç»„
+//          lenä¸ºSampleçš„é•¿åº¦ï¼ŒframeSizeä¸ºæ¯å¸§çš„æ ·æœ¬ç‚¹ä¸ªæ•°ï¼ŒframeSampleLenä¸ºå¤„ç†ä¹‹åçš„é•¿åº¦
 double *mfccFrame(double *frameSample, double *Sample, int *len, int frameSize, int &frameSampleLen,
                   int frameNum) {
     double *hamWin;
     int hamWinSize = sampleRate * Win_Time;//16000*0.025
     hamWin = new double[hamWinSize];
-    Hamming(hamWin, hamWinSize);//¼ÆËãhamming´°
+    Hamming(hamWin, hamWinSize);//è®¡ç®—hammingçª—
 
 //	int hopStep = Hop_Time * sampleRate;
-//    int frameNum = 1+ceil((double(*len)-400)/ hopStep);//¼ÆËãÒ»¹²»áÓĞ¶àÉÙ
-//    int frameNum00 = ceil(double(*len) / hopStep);//¼ÆËãÒ»¹²»áÓĞ¶àÉÙÖ¡
+//    int frameNum = 1+ceil((double(*len)-400)/ hopStep);//è®¡ç®—ä¸€å…±ä¼šæœ‰å¤šå°‘
+//    int frameNum00 = ceil(double(*len) / hopStep);//è®¡ç®—ä¸€å…±ä¼šæœ‰å¤šå°‘å¸§
     int frameNum00 = frameNum;
 
-    frameSampleLen = frameNum00 * frameSize;//¾­¹ı´¦ÀíÖ®ºóµÄ³¤¶È
+    frameSampleLen = frameNum00 * frameSize;//ç»è¿‡å¤„ç†ä¹‹åçš„é•¿åº¦
     frameSample = new double[frameSampleLen];
     for (int i = 0; i < frameSampleLen; i++)
         frameSample[i] = 0;
@@ -131,13 +141,13 @@ double *mfccFrame(double *frameSample, double *Sample, int *len, int frameSize, 
     double *FFTSample = new double[frameSampleLen];
     for (int i = 0; i < frameSampleLen; i++)
         FFTSample[i] = 0;
-    for (int i = 0; i < frameNum00; i++)//·ÖÖ¡
+    for (int i = 0; i < frameNum00; i++)//åˆ†å¸§
     {
         for (int j = 0; j < frameSize; j++) {
             if (j < hamWinSize && i * hopStep + j < *len) {
                 frameSample[i * frameSize + j] = Sample[i * hopStep + j] * hamWin[j];
             } else
-                frameSample[i * frameSize + j] = 0;//²¹0
+                frameSample[i * frameSize + j] = 0;//è¡¥0
         }
 
         mfccFFT(frameSample, FFTSample, frameSize, i * frameSize);
@@ -176,12 +186,11 @@ void DCT(double **c, int frameNum) {
 
 void computeMel(double **mel, int sampleRate, double *FFTSample, int frameNum, int frameSize) {
 
-    double f[filterNum + 2] = {0.0, 2.0, 4.0, 7.0, 10.0, 13.0, 16.0, 20.0, 24.0, 29.0, 34.0, 40.0,
-                               46.0, 53.0, 60.0, 68.0, 77.0, 87.0, 97.0, 109.0, 122.0, 136.0, 152.0,
-                               169.0, 188.0, 209.0, 231.0, 256.0};
+    double f[filterNum + 2] = {0.0, 2.0, 4.0, 7.0, 10.0, 13.0, 16.0, 20.0, 24.0, 29.0, 34.0, 40.0, 46.0, 53.0, 60.0,
+                               68.0, 77.0, 87.0, 97.0, 109.0, 122.0, 136.0, 152.0, 169.0, 188.0, 209.0, 231.0, 256.0};
 
 
-    //¼ÆËã³öÃ¿¸öÈı½ÇÂË²¨Æ÷µÄÊä³ö: ¶ÔÃ¿Ò»Ö¡½øĞĞ´¦Àí
+    //è®¡ç®—å‡ºæ¯ä¸ªä¸‰è§’æ»¤æ³¢å™¨çš„è¾“å‡º: å¯¹æ¯ä¸€å¸§è¿›è¡Œå¤„ç†
     for (int i = 0; i < frameNum; i++) {
         for (int j = 1; j <= filterNum; j++) {
             double temp = 0;
@@ -199,8 +208,10 @@ void computeMel(double **mel, int sampleRate, double *FFTSample, int frameNum, i
         }
     }
 //    double meltest=mel[0][2];
-//	ofstream fileMel("D:\\CodeBlocks\\projext\\mfcc_zhou\\zhou\\bin\\Mel.dat");
-//	for(int j = 0; j < frameNum; j++)
+//    cout << "mel[0][13] = " << mel[0][13] << endl;
+//	ofstream fileMel("./Mel.dat");
+//	for(int j = 0; j < frameN
+//    um; j++)
 //    {
 //        for(int i = 0; i < filterNum; i++)
 //            fileMel << mel[j][i] << " ";
@@ -209,17 +220,20 @@ void computeMel(double **mel, int sampleRate, double *FFTSample, int frameNum, i
 //    for(int i = 0; i <= filterNum; i++)
 //		fileMel << mel[0][i] << endl;
 
-    //È¡¶ÔÊı
+    //å–å¯¹æ•°
     for (int i = 0; i < frameNum; i++) {
         for (int j = 0; j < filterNum; j++) {
-            if (mel[i][j + 13] <= 0.00000000001 || mel[i][j + 13] >= 0.00000000001)
+            if (mel[i][j + 13] >= 0.00000000001)
                 mel[i][j + 13] = log(mel[i][j + 13]);
+            else
+                mel[i][j + 13] = 2.22e-16;
         }
     }
+    //cout << "mel[0][13] = " << mel[0][13] << endl;
 }
 
 void writeToFile(int frameNum, int frameSize, double **DCT) {
-    ofstream fileDCT(Constant::ASR_BASE_PATH + "/DCT.dat");
+    ofstream fileDCT("./DCT.dat");
 
     for (int j = 0; j < frameNum; j++)//write DCT
     {
@@ -232,91 +246,267 @@ void writeToFile(int frameNum, int frameSize, double **DCT) {
 //MFCC
 void MFCC(double *sample, int len, double **mfcc39, int frameNum) {
 
-    double factor = 0.97;//Ô¤¼ÓÖØ²ÎÊı
+    double factor = 0.97;//é¢„åŠ é‡å‚æ•°
     double *Sample = new double[len];
-    //1.Ô¤¼ÓÖØ
+    //1.é¢„åŠ é‡
     pre_emphasizing(sample, len, factor, Sample);
     //1ms
 
-    //Sample[len],ÏàµÈ
+    //Sample[len],ç›¸ç­‰
 //    double yujz=Sample[10];
-    //¼ÆËã³öÃ¿Ö¡ÓĞ¶àÉÙ¸öµã£¬È»ºóËã³ö×î½Ó½üµãµÄ¸öÊıµÄ2^k£¬Ê¹µÃÃ¿Ö¡µÄµãµÄ¸öÊıÎª2^k£¬ÒÔ±ã½øĞĞ²¹0
+    //è®¡ç®—å‡ºæ¯å¸§æœ‰å¤šå°‘ä¸ªç‚¹ï¼Œç„¶åç®—å‡ºæœ€æ¥è¿‘ç‚¹çš„ä¸ªæ•°çš„2^kï¼Œä½¿å¾—æ¯å¸§çš„ç‚¹çš„ä¸ªæ•°ä¸º2^kï¼Œä»¥ä¾¿è¿›è¡Œè¡¥0
     int frameSize = (int) pow(2, ceil(log(Win_Time * sampleRate) / log(2.0)));
     double *frameSample = NULL, *FFTSample = NULL;
     int frameSampleLen;
 
-    //·ÖÖ¡¡¢¼Ó´°¡¢¹¦ÂÊÆ×
+    //åˆ†å¸§ã€åŠ çª—ã€åŠŸç‡è°±
     FFTSample = mfccFrame(frameSample, Sample, &len, frameSize, frameSampleLen, frameNum);
 
     delete[]Sample;
     delete[]frameSample;
-    //FFTSample[512*frameNum]
-//    double fft_test=FFTSample[256];//257-512Îª0
 
-//	int frameNum = ceil(double(len) / hopStep);
-//	int frameNum =1+ ceil((double(len)-Win_Time * sampleRate) / hopStep);//¼ÆËãËùÓĞÑù±¾µãÒ»¹²ÓĞ¶àÉÙÖ¡
-    //numframes = 1 + int(math.ceil((1.0*slen - frame_len)/frame_step))
-
-//    double mel[400][26];
-//    double** mel=new double*[frameNum];
-//    for(int i=0;i<frameNum;i++)
-//    {
-//        mel[i]=new double[filterNum];
-//        for(int j = 0; j < filterNum; j++)
-//    		mel[i][j] = 0;
-//    }
     computeMel(mfcc39, sampleRate, FFTSample, frameNum, frameSize);
     delete[]FFTSample;
 
-    //   double **c[400][26];
-//    double** c=new double*[frameNum];
-//    for(int i=0;i<frameNum;i++)
-//    {
-//        c[i]=new double[filterNum];
-//        for(int j = 0; j < filterNum; j++)
-//    		c[i][j] = 0;
-//    }
-//    for(int i = 0; i < frameNum; i++)
-//    {
-//    	for(int j = 0; j < filterNum; j++)
-//    		c[i][j] = 0;
-//    }
+
     DCT(mfcc39, frameNum);
     //   delete mel;
     //   writeToFile(frameNum, frameSize, mfcc39);
     //return c;
 }
 
-
-extern "C" {
-void
-Java_com_weechan_asr_Analyze_injectBasePath(
-        string basePath) {
-    if (Constant::ASR_BASE_PATH.empty()) {
-        Constant::ASR_BASE_PATH = basePath;
+int
+init_weights(int innode, int hidenode, double(**W_Z), double(**U_Z), double(**W_R), double(**U_R),
+             double(**W_H), double(**U_H), double(*B_Z), double(*B_R), double(*B_H),
+             double(**gru_kernel), double(**gru_r_kernel), double(*gru_bias), string path_gru_bias,
+             string path_gru_kernel, string path_gru_r_kernel) {
+    //è½½å…¥æƒé‡
+    ifstream gru_w;//å®šä¹‰è¯»å–æ–‡ä»¶æµï¼Œç›¸å¯¹äºç¨‹åºæ¥è¯´æ˜¯in
+    gru_w.open(path_gru_kernel);//æ‰“å¼€æ–‡ä»¶
+    for (int i = 0; i < innode; i++) {
+        for (int j = 0; j < hidenode * 3; j++) {
+            gru_w >> gru_kernel[i][j];  //å‡åŒ€éšæœºåˆ†å¸ƒ
+        }
     }
-    Constant::of = new ofstream(Constant::ASR_BASE_PATH + "/log.txt");
+    gru_w.close();//è¯»å–å®Œæˆä¹‹åå…³é—­æ–‡ä»¶
+
+    //--------------------------------------------------------------------
+    ifstream gru_r_w;//å®šä¹‰è¯»å–æ–‡ä»¶æµï¼Œç›¸å¯¹äºç¨‹åºæ¥è¯´æ˜¯in
+    gru_r_w.open(path_gru_r_kernel);//æ‰“å¼€æ–‡ä»¶
+    for (int i = 0; i < hidenode; i++) {
+        for (int j = 0; j < hidenode * 3; j++) {
+            gru_r_w >> gru_r_kernel[i][j];  //å‡åŒ€éšæœºåˆ†å¸ƒ
+        }
+    }
+    gru_r_w.close();//è¯»å–å®Œæˆä¹‹åå…³é—­æ–‡ä»¶
+
+    //-------------------------------------------------------------------------
+    ifstream gru_b;//å®šä¹‰è¯»å–æ–‡ä»¶æµï¼Œç›¸å¯¹äºç¨‹åºæ¥è¯´æ˜¯in
+    gru_b.open(path_gru_bias);//æ‰“å¼€æ–‡ä»¶
+    for (int i = 0; i < hidenode * 3; i++) {
+        gru_b >> gru_bias[i];
+    }
+    gru_b.close();//è¯»å–å®Œæˆä¹‹åå…³é—­æ–‡ä»¶
+    //--------------------------------------------------------------------
+    //è¾“å…¥å¯¹åº”çš„é—¨æƒé‡åˆå§‹åŒ–
+    for (int i = 0; i < innode; i++) {
+        for (int j = 0; j < hidenode; j++) {
+            W_Z[i][j] = gru_kernel[i][j];
+            W_R[i][j] = gru_kernel[i][j + hidenode];
+            W_H[i][j] = gru_kernel[i][j + hidenode * 2];
+        }
+    }
+
+    //éšè—å¯¹åº”çš„é—¨æƒé‡åˆå§‹åŒ–
+    for (int i = 0; i < hidenode; i++) {
+        for (int j = 0; j < hidenode; j++) {
+            U_Z[i][j] = gru_r_kernel[i][j];
+            U_R[i][j] = gru_r_kernel[i][j + hidenode];
+            U_H[i][j] = gru_r_kernel[i][j + hidenode * 2];
+        }
+    }
+
+    //åç½®åˆå§‹åŒ–
+    for (int i = 0; i < hidenode; i++) {
+        B_Z[i] = gru_bias[i];
+        B_R[i] = gru_bias[i + hidenode];
+        B_H[i] = gru_bias[i + hidenode * 2];
+    }
+    return 0;
 }
+
+
+namespace good {
+    int gru_innode = 512;
+    int gru_hidenode = 39;
+    int bi_gru_innode = 39;
+    int bi_gru_hidenode = 256;
+    //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    double **G_W_Z;  //è¾“å…¥çš„æ›´æ–°é—¨æƒé‡
+    double **G_U_Z;  //éšå«å±‚çš„æ›´æ–°é—¨æƒé‡
+    double **G_W_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **G_U_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **G_W_H;  //è¾“å…¥çš„æƒé‡
+    double **G_U_H;  //ä¸Šä¸ªæ—¶é—´æ­¥è¾“å‡ºçš„æƒé‡
+    double *G_B_Z;
+    double *G_B_R;
+    double *G_B_H;
+    double **gru_kernel;
+    double **gru_r_kernel;
+    double *gru_bias;
+    //---------------------------------
+    double **F_W_Z;  //è¾“å…¥çš„æ›´æ–°é—¨æƒé‡
+    double **F_U_Z;  //éšå«å±‚çš„æ›´æ–°é—¨æƒé‡
+    double **F_W_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **F_U_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **F_W_H;  //è¾“å…¥çš„æƒé‡
+    double **F_U_H;  //ä¸Šä¸ªæ—¶é—´æ­¥è¾“å‡ºçš„æƒé‡
+    double *F_B_Z;
+    double *F_B_R;
+    double *F_B_H;
+    double **fw_gru_kernel;
+    double **fw_gru_r_kernel;
+    double *fw_gru_bias;
+    //------------------------------------
+    double **B_W_Z;  //è¾“å…¥çš„æ›´æ–°é—¨æƒé‡
+    double **B_U_Z;  //éšå«å±‚çš„æ›´æ–°é—¨æƒé‡
+    double **B_W_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **B_U_R;  //éšå«å±‚çš„é‡ç½®é—¨æƒé‡
+    double **B_W_H;  //è¾“å…¥çš„æƒé‡
+    double **B_U_H;  //ä¸Šä¸ªæ—¶é—´æ­¥è¾“å‡ºçš„æƒé‡
+    double *B_B_Z;
+    double *B_B_R;
+    double *B_B_H;
+    double **bw_gru_kernel;
+    double **bw_gru_r_kernel;
+    double *bw_gru_bias;
+}
+
+using namespace good;
+
+void load() {
+    string path_gru_bias = Constant::ASR_BASE_PATH + "/model/gru_bias.txt";
+    string path_gru_kernel = Constant::ASR_BASE_PATH + "/model/gru_kernel.txt";
+    string path_gru_r_kernel = Constant::ASR_BASE_PATH + "/model/gru_r_kernel.txt";
+    //-----------------------------------------------------------------------------------------------------
+    string path_fw_gru_bias = Constant::ASR_BASE_PATH + "/model/fw_gru_bias.txt";
+    string path_fw_gru_kernel = Constant::ASR_BASE_PATH + "/model/fw_gru_kernel.txt";
+    string path_fw_gru_r_kernel = Constant::ASR_BASE_PATH + "/model/fw_gru_r_kernel.txt";
+    //---------------------------------------------------------------------------------------------------
+    string path_bw_gru_bias = Constant::ASR_BASE_PATH + "/model/bw_gru_bias.txt";
+    string path_bw_gru_kernel = Constant::ASR_BASE_PATH + "/model/bw_gru_kernel.txt";
+    string path_bw_gru_r_kernel = Constant::ASR_BASE_PATH + "/model/bw_gru_r_kernel.txt";
+    //------------------------------------------------------------------------------------------------------
+
+    //+++++++++++++++++++++++++++++++++++++++++++++++
+
+    //åˆå§‹åŒ–å„ä¸ªé—¨çš„æƒé‡çŸ©é˜µ
+    gru_kernel = (double **) malloc(sizeof(double *) * gru_innode);
+    G_W_Z = (double **) malloc(sizeof(double *) * gru_innode);
+    G_W_R = (double **) malloc(sizeof(double *) * gru_innode);
+    G_W_H = (double **) malloc(sizeof(double *) * gru_innode);
+    for (int i = 0; i < gru_innode; i++) {
+        gru_kernel[i] = (double *) malloc(sizeof(double) * 3 * gru_hidenode);
+        G_W_Z[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+        G_W_R[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+        G_W_H[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+    }
+    gru_r_kernel = (double **) malloc(sizeof(double *) * gru_hidenode);
+    G_U_Z = (double **) malloc(sizeof(double *) * gru_hidenode);
+    G_U_R = (double **) malloc(sizeof(double *) * gru_hidenode);
+    G_U_H = (double **) malloc(sizeof(double *) * gru_hidenode);
+    for (int i = 0; i < gru_hidenode; i++) {
+        gru_r_kernel[i] = (double *) malloc(sizeof(double) * 3 * gru_hidenode);
+        G_U_Z[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+        G_U_R[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+        G_U_H[i] = (double *) malloc(sizeof(double) * gru_hidenode);
+    }
+    gru_bias = (double *) malloc(sizeof(double) * 3 * gru_hidenode);
+    G_B_Z = (double *) malloc(sizeof(double) * gru_hidenode);
+    G_B_R = (double *) malloc(sizeof(double) * gru_hidenode);
+    G_B_H = (double *) malloc(sizeof(double) * gru_hidenode);
+    //--------------------------------------------------------------------------------
+    fw_gru_kernel = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    F_W_Z = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    F_W_R = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    F_W_H = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    for (int i = 0; i < bi_gru_innode; i++) {
+        fw_gru_kernel[i] = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+        F_W_Z[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        F_W_R[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        F_W_H[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    }
+    fw_gru_r_kernel = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    F_U_Z = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    F_U_R = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    F_U_H = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    for (int i = 0; i < bi_gru_hidenode; i++) {
+        fw_gru_r_kernel[i] = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+        F_U_Z[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        F_U_R[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        F_U_H[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    }
+    fw_gru_bias = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+    F_B_Z = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    F_B_R = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    F_B_H = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    //-------------------------------------------------------------------
+    bw_gru_kernel = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    B_W_Z = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    B_W_R = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    B_W_H = (double **) malloc(sizeof(double *) * bi_gru_innode);
+    for (int i = 0; i < bi_gru_innode; i++) {
+        bw_gru_kernel[i] = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+        B_W_Z[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        B_W_R[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        B_W_H[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    }
+    bw_gru_r_kernel = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    B_U_Z = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    B_U_R = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    B_U_H = (double **) malloc(sizeof(double *) * bi_gru_hidenode);
+    for (int i = 0; i < bi_gru_hidenode; i++) {
+        bw_gru_r_kernel[i] = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+        B_U_Z[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        B_U_R[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+        B_U_H[i] = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    }
+    bw_gru_bias = (double *) malloc(sizeof(double) * 3 * bi_gru_hidenode);
+    B_B_Z = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    B_B_R = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+    B_B_H = (double *) malloc(sizeof(double) * bi_gru_hidenode);
+
+    //åˆå§‹åŒ–æƒé‡
+    //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    init_weights(gru_innode, gru_hidenode, G_W_Z, G_U_Z, G_W_R, G_U_R, G_W_H, G_U_H, G_B_Z, G_B_R,
+                 G_B_H, gru_kernel, gru_r_kernel, gru_bias, path_gru_bias, path_gru_kernel,
+                 path_gru_r_kernel);
+    init_weights(bi_gru_innode, bi_gru_hidenode, F_W_Z, F_U_Z, F_W_R, F_U_R, F_W_H, F_U_H, F_B_Z,
+                 F_B_R, F_B_H, fw_gru_kernel, fw_gru_r_kernel, fw_gru_bias, path_fw_gru_bias,
+                 path_fw_gru_kernel, path_fw_gru_r_kernel);
+    init_weights(bi_gru_innode, bi_gru_hidenode, B_W_Z, B_U_Z, B_W_R, B_U_R, B_W_H, B_U_H, B_B_Z,
+                 B_B_R, B_B_H, bw_gru_kernel, bw_gru_r_kernel, bw_gru_bias, path_bw_gru_bias,
+                 path_bw_gru_kernel, path_bw_gru_r_kernel);
+    //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    //mainå‡½æ•°åˆ°è¿™ä¸ºè½½å…¥ç½‘ç»œæƒé‡
+
 }
 
 
 extern "C" {
-void Java_com_weechan_asr_Analyze_analyze(string path) {
-    //ÊäÈëWAVÎÄ¼şµØÖ·
+JNIEXPORT void JNICALL
+Java_analyze_Analyze_analyze(JNIEnv *env, jclass klass, jstring jpath) {
+    //è¾“å…¥WAVæ–‡ä»¶åœ°å€
+    string path = (env)->GetStringUTFChars(jpath, nullptr);
     unsigned long wavdata_l;
-
-    FILE * file  = fopen(path.c_str(),"rb");
-    fseek(file,0,SEEK_END);
-    *Constant::of << ftell(file) << endl;
-
     double *sample = NULL;
+
     sample = readwav(path, &wavdata_l);
-    *Constant::of << path << endl << flush;
-    *Constant::of << "wavdata_l: " << wavdata_l << endl << flush;
-    int frameNum = 1 + ceil((double(wavdata_l) - Win_Time * sampleRate) / hopStep);//¼ÆËãËùÓĞÑù±¾µãÒ»¹²ÓĞ¶àÉÙÖ¡
+
+    int frameNum = 1 + ceil((double(wavdata_l) - Win_Time * sampleRate) / hopStep);//è®¡ç®—æ‰€æœ‰æ ·æœ¬ç‚¹ä¸€å…±æœ‰å¤šå°‘å¸§
     int frame_new = (ceil(frameNum / (maxlen / 2 * 1.0)) - 1) * maxlen;
     double **mfcc39 = new double *[frameNum];
-
     for (int i = 0; i < frameNum; i++) {
         mfcc39[i] = new double[39];
         for (int j = 0; j < 39; j++)
@@ -326,7 +516,6 @@ void Java_com_weechan_asr_Analyze_analyze(string path) {
     clock_t startTime = clock();
     MFCC(sample, wavdata_l, mfcc39, frameNum);
     clock_t endTime = clock();
-    cout << "time is : " << endTime - startTime << "ms" << endl;
     //741ms
 
     delete[]sample;
@@ -340,7 +529,7 @@ void Java_com_weechan_asr_Analyze_analyze(string path) {
             xtest[i][j] = 0;
     }
     reshape(mfcc39, maxlen, dim, frameNum, xtest);
-    //ÊÍ·Å
+    //é‡Šæ”¾
     for (int i = 0; i < frameNum; i++) {
         delete[] mfcc39[i];
     }
@@ -350,28 +539,37 @@ void Java_com_weechan_asr_Analyze_analyze(string path) {
     //==========================================
     int *label = new int[frameNum];
 
-    label = model(xtest, frameNum, frame_new, label);
-    //ÊÍ·Å
+    //å‰å‘è®¡ç®—éƒ¨åˆ†
+    //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    label = model(xtest, frameNum, frame_new, label, G_W_Z, G_U_Z, G_W_R, G_U_R, G_W_H, G_U_H,
+                  G_B_Z,
+                  G_B_R, G_B_H, F_W_Z, F_U_Z, F_W_R, F_U_R, F_W_H, F_U_H, F_B_Z, F_B_R, F_B_H,
+                  B_W_Z,
+                  B_U_Z, B_W_R, B_U_R, B_W_H, B_U_H, B_B_Z, B_B_R, B_B_H, gru_kernel, gru_r_kernel,
+                  gru_bias,
+                  fw_gru_kernel, fw_gru_r_kernel, fw_gru_bias, bw_gru_kernel, bw_gru_r_kernel,
+                  bw_gru_bias
+    );
+    //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    //é‡Šæ”¾
     for (int i = 0; i < test_num; i++) {
         delete[] xtest[i];
     }
     delete[] xtest;
 
-    //10175ms
-    for (int i = 0; i < 30; i++) {
-        cout << "µÚ" << i + 1 << "Ö¡:  " << label[i] << '\n';
-    }
+
     //=================================
     cout << wavdata_l << endl;
 //	cout<<xtest[0][0];
-    vector<int> newlist;//Êä³öµÄĞòÁĞ
-    vector<int> pointlist;//¼ÇÂ¼Ã¿¸öÒôËØ´ÓµÚ¼¸¸ö²ÉÑùµã¿ªÊ¼
+    vector<int> newlist;//è¾“å‡ºçš„åºåˆ—
+    vector<int> pointlist;//è®°å½•æ¯ä¸ªéŸ³ç´ ä»ç¬¬å‡ ä¸ªé‡‡æ ·ç‚¹å¼€å§‹
     trimming(newlist, pointlist, label, frameNum, hopStep);
     //10611ms
 
     delete[]label;
     int phone_num = newlist.size();
-    //°ÑÊä³öĞ´µ½txtÎÄ¼şÖĞ
+    //æŠŠè¾“å‡ºå†™åˆ°txtæ–‡ä»¶ä¸­
     ofstream fileout(Constant::ASR_BASE_PATH + "/output.txt");
     for (int i = 0; i < phone_num; i++) {
         fileout << newlist[i] << ',';
@@ -384,17 +582,107 @@ void Java_com_weechan_asr_Analyze_analyze(string path) {
     //10919ms
 }
 }
-using namespace std;
-int main(){
-//    Java_com_weechan_asr_Analyze_injectBasePath("../model");
-//    Java_com_weechan_asr_Analyze_analyze("../sound/SA1_.wav");
 
+extern "C" {
+JNIEXPORT void JNICALL
+Java_analyze_Analyze_init(JNIEnv *env, jclass klass, jstring path) {
+    load();
+    Constant::ASR_BASE_PATH = env->GetStringUTFChars(path, nullptr);
+}
+}
 
+void tt(string);
+
+int main() {
+    load();
+    tt( "/home/c/CLionProjects/untitled/sound/1551168085597_record.pcm.wav");
 
 }
 
 
+void tt(string path) {
+//è¾“å…¥WAVæ–‡ä»¶åœ°å€
+    unsigned long wavdata_l;
+    double *sample = NULL;
+
+    sample = readwav(path, &wavdata_l);
+
+    int frameNum = 1 + ceil((double(wavdata_l) - Win_Time * sampleRate) / hopStep);//è®¡ç®—æ‰€æœ‰æ ·æœ¬ç‚¹ä¸€å…±æœ‰å¤šå°‘å¸§
+    int frame_new = (ceil(frameNum / (maxlen / 2 * 1.0)) - 1) * maxlen;
+    double **mfcc39 = new double *[frameNum];
+    for (int i = 0; i < frameNum; i++) {
+        mfcc39[i] = new double[39];
+        for (int j = 0; j < 39; j++)
+            mfcc39[i][j] = 0;
+    }
+//9ms
+    clock_t startTime = clock();
+    MFCC(sample, wavdata_l, mfcc39, frameNum);
+    clock_t endTime = clock();
+//741ms
+
+    delete[]sample;
+    int overlap = maxlen / 2;
+    int num_100 = ceil(frameNum / (overlap * 1.0)) - 1;
+    int test_num = num_100 * maxlen;
+    double **xtest = new double *[test_num];
+    for (int i = 0; i < test_num; i++) {
+        xtest[i] = new double[39];
+        for (int j = 0; j < 39; j++)
+            xtest[i][j] = 0;
+    }
+    reshape(mfcc39, maxlen, dim, frameNum, xtest);
+//é‡Šæ”¾
+    for (int i = 0; i < frameNum; i++) {
+        delete[] mfcc39[i];
+    }
+    delete[] mfcc39;
 
 
+//==========================================
+    int *label = new int[frameNum];
+
+//å‰å‘è®¡ç®—éƒ¨åˆ†
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    label = model(xtest, frameNum, frame_new, label, G_W_Z, G_U_Z, G_W_R, G_U_R, G_W_H, G_U_H,
+                  G_B_Z,
+                  G_B_R, G_B_H, F_W_Z, F_U_Z, F_W_R, F_U_R, F_W_H, F_U_H, F_B_Z, F_B_R, F_B_H,
+                  B_W_Z,
+                  B_U_Z, B_W_R, B_U_R, B_W_H, B_U_H, B_B_Z, B_B_R, B_B_H, gru_kernel, gru_r_kernel,
+                  gru_bias,
+                  fw_gru_kernel, fw_gru_r_kernel, fw_gru_bias, bw_gru_kernel, bw_gru_r_kernel,
+                  bw_gru_bias
+    );
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//é‡Šæ”¾
+    for (int i = 0; i < test_num; i++) {
+        delete[] xtest[i];
+    }
+    delete[] xtest;
+
+
+//=================================
+    cout << wavdata_l << endl;
+//	cout<<xtest[0][0];
+    vector<int> newlist;//è¾“å‡ºçš„åºåˆ—
+    vector<int> pointlist;//è®°å½•æ¯ä¸ªéŸ³ç´ ä»ç¬¬å‡ ä¸ªé‡‡æ ·ç‚¹å¼€å§‹
+    trimming(newlist, pointlist, label, frameNum, hopStep);
+//10611ms
+
+    delete[]label;
+    int phone_num = newlist.size();
+//æŠŠè¾“å‡ºå†™åˆ°txtæ–‡ä»¶ä¸­
+    ofstream fileout(Constant::ASR_BASE_PATH + "/output.txt");
+    for (int i = 0; i < phone_num; i++) {
+        fileout << newlist[i] << ',';
+        fileout << pointlist[i] << endl;
+    }
+    fileout.close();
+
+    newlist.clear();
+    pointlist.clear();
+//10919ms
+}
 
 

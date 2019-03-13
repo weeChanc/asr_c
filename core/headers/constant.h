@@ -8,6 +8,5 @@ using namespace std;
 class Constant {
 public :
     static string ASR_BASE_PATH;
-    static ofstream *of;
 };
 #endif //ASR_CONSTANT_H

@@ -9,7 +9,6 @@
 
 using namespace std;
 
-string Constant::ASR_BASE_PATH = "";
-ofstream* Constant::of = nullptr;
+string Constant::ASR_BASE_PATH = "/home/c/IdeaProjects/practice";
 
 #endif

@@ -7,6 +7,7 @@
 #include<stdlib.h>
 #include <bitset>
 #include <iomanip>
+#include "constant.h"
 //要在intmain()的前面加上函数的声明，因为你的函数写在main函数的后面
 int hex_char_value(char ss);
 int hex_to_decimal(const char* s);
@@ -27,30 +28,34 @@ struct wav_struct
 double * readwav(string path,long unsigned *data_len)
 {
     fstream fs;
-    wav_struct WAV;
+    wav_struct* WAV = new wav_struct();
     fs.open(path, ios::binary | ios::in);
     fs.seekg(0, ios::end);
-    WAV. file_size = fs.tellg();
-    fs.seekg(0x14);
-    fs.read((char*)&WAV.channel, sizeof(WAV.channel));
-    fs.seekg(0x18);
-    fs.read((char*)&WAV.frequency, sizeof(WAV.frequency));
-    fs.seekg(0x1c);
-    fs.read((char*)&WAV.Bps, sizeof(WAV.Bps));
-    fs.seekg(0x22);
-    fs.read((char*)&WAV.sample_num_bit, sizeof(WAV.sample_num_bit));
-    fs.seekg(0x28);
-    fs.read((char*)&WAV.data_size, sizeof(WAV.data_size));
-    WAV. data = new unsigned char [WAV.data_size];
-    fs.seekg(0x2c);
-    fs.read((char *)WAV.data,sizeof(char)*WAV.data_size);
-	 double* wavdata=( double *)malloc(WAV.data_size*sizeof(double));
+    WAV-> file_size = fs. tellg();
 
-    for (unsigned long i =0; i<WAV.data_size; i = i + 2)
+    fs.seekg(0x14);
+    fs.read((char*)&WAV-> channel, 2);
+    fs.seekg(0x18);
+    fs.read((char*)&WAV-> frequency, 4);
+    fs.seekg(0x1c);
+    fs.read((char*)&WAV-> Bps, 4);
+    fs.seekg(0x22);
+    fs.read((char*)&WAV-> sample_num_bit,2);
+    fs.seekg(0x28);
+    fs.read((char*)&WAV-> data_size, 4);
+    cout << WAV->channel << "  " << WAV->frequency << "  "  << WAV->Bps  << "  " << WAV->sample_num_bit  << "  " << WAV->data_size << endl;
+    WAV-> data = new unsigned char [WAV->data_size];
+    fs.seekg(0x2c);
+    fs.read((char *)WAV->data,sizeof(char)*WAV->data_size);
+
+    double* wavdata=( double *)malloc(WAV->data_size*sizeof(double));
+
+
+    for (unsigned long i =0; i<WAV->data_size; i = i + 2)
     {
         //右边为大端
-        unsigned long data_low = WAV.data[i];
-        unsigned long data_high = WAV.data[i + 1];
+        unsigned long data_low = WAV->data[i];
+        unsigned long data_high = WAV->data[i + 1];
         double data_true = data_high * 256 + data_low;
         //printf("%d ",data_true);
         long data_complement = 0;
@@ -75,11 +80,10 @@ double * readwav(string path,long unsigned *data_len)
     }
     fs.close();
 
-    delete[] WAV.data;
-	*data_len=WAV.data_size/2;
-	return wavdata;
+    delete[] WAV->data;
+    *data_len=WAV->data_size/2;
+    return wavdata;
 }
-
 int hex_char_value(char c)
 {
     if (c>='0'&&c<='9')
@@ -96,7 +100,7 @@ int hex_to_decimal(char* szHex)
     int result=0;
     for (int i=0;i<len;i++)
     {
-         result += (int)pow((float)16, (int)len - i - 1) * hex_char_value(szHex[i]);
+        result += (int)pow((float)16, (int)len - i - 1) * hex_char_value(szHex[i]);
     }
     return result;
 }

@@ -1,6 +1,7 @@
 //
 // Created by c on 2019/2/14.
 //
+#include <vector>
 #include "iostream"
 #ifndef ASR_RESHAPE_H
 #define ASR_RESHAPE_H

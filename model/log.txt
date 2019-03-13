@@ -1,3 +1,0 @@
-104902
-../sound/SA1_.wav
-wavdata_l: 52429
